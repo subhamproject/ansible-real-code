@@ -1,0 +1,20 @@
+---
+- name: check AMI
+  hosts: localhost
+  connection: local
+  tasks:
+  - block:
+    - name: 'Get all Amazon Linux 2 AMIs'
+      amazon.aws.ec2_ami_info:
+        owners:
+          - amazon
+        filters:
+          name: amzn2-ami-hvm-*-x86_64-gp2
+          architecture: x86_64
+          block-device-mapping.volume-type: gp2
+          virtualization-type: hvm
+      register: amis
+    - name: Extract the most recently created AMI from the list
+      debug:
+          msg: "{{ amis.images[-1].image_id }}"
+      register: latest_amzl2_ami

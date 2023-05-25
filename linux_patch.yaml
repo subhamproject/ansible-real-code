@@ -1,0 +1,29 @@
+- hosts: aws_region_us_west_2
+  remote_user: ec2-user
+  gather_facts: true
+  become: yes
+  tasks:
+    - name: upgrade all packages
+      yum: name=* state=latest
+
+    - name: Check for reboot hint.
+      shell: LAST_KERNEL=$(rpm -q --last kernel | awk 'NR==1{sub(/kernel-/,""); print $1}'); CURRENT_KERNEL=$(uname -r); if [ $LAST_KERNEL != $CURRENT_KERNEL ]; then echo 'reboot'; else echo 'no'; fi
+      ignore_errors: true
+      register: reboot_require
+
+
+    - name: check to see if we need a reboot
+      command: needs-restarting -r
+      register: result
+      ignore_errors: yes
+
+    - name: display result
+      debug:
+        var: result.rc
+
+
+    - name: Reboot the server if necessary
+      when: result.rc == 1
+      reboot:
+        test_command: uptime
+        reboot_timeout: 300

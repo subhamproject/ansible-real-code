@@ -1,0 +1,20 @@
+---
+- name: Update Linux packages using apt
+  hosts: aws_region_us_west_2
+  become: yes
+  tasks:
+    - name: Update package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Upgrade all packages to their latest version
+      apt:
+        name: '*'
+        state: latest
+        force_apt_get: yes
+
+    - name: Reboot the server if necessary
+      reboot:
+        test_command: uptime
+        reboot_timeout: 300
