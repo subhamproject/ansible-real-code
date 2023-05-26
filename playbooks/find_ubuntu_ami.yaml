@@ -1,0 +1,21 @@
+---
+- name: check AMI for Ubuntu
+  hosts: localhost
+  connection: local
+  tasks:
+  - block:
+    - name: 'Get all Ubuntu AMIs'
+      amazon.aws.ec2_ami_info:
+        owners:
+          - amazon
+        filters:
+          #name: "ubuntu/images/hvm-ssd/ubuntu-xenial-16.04-amd64-server-*"
+          name: "ubuntu/images/hvm-ssd/*22.04-amd64-server-????????"
+      register: amis
+    - name: now get the latest one
+      set_fact:
+        sorted_amis: "{{ amis.images | sort(attribute='creation_date') }}"
+    - name: Extract the most recently created AMI from the list
+      debug:
+          msg: "{{ amis.images[-1].image_id }}"
+

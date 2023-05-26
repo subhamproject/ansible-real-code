@@ -1,0 +1,263 @@
+#AWS playbook
+#ansible-playbook ec2_with_dynamic_ami.yaml --vault-password-file ../vault.pass --tags create_ec2
+#PLEASE NOTE WHILE USING PLAYBOOK DONT FORGET TO CREATE ANSIBLE VAULT FOR AWS SECRECTS OTHER WISE IT WONT WORK - FOLLOW THE ATTACH LINK FOR THE SAME
+---
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars_files:
+    #file: "{{lookup('pipe', 'pwd')}}/pass.yml"
+    #- secret/secrets.yml
+    - "{{ playbook_dir }}/secret/secrets.yml"
+
+  vars:
+    key_name: my_aws
+    region: us-east-2
+    id: "ec2-app"
+    sec_group: "{{ id }}-sec"
+
+  tasks:
+    - name: Facts
+      block:
+      - name: Get instances facts
+        ec2_instance_info:
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+          region: "{{ region }}"
+        register: result
+      - name: Instances ID
+        debug:
+          msg: "ID: {{ item.instance_id }} - State: {{ item.state.name }} - Public DNS: {{ item.public_dns_name }}"
+        loop: "{{ result.instances }}"
+      tags: never
+
+
+    - name: Provisioning EC2 instances
+      block:
+      - name: 'Get all Amazon Linux 2 AMIs'
+        amazon.aws.ec2_ami_info:
+         region: "{{ region }}"
+         owners:
+          - amazon
+         filters:
+          name: "ubuntu/images/hvm-ssd/*22.04-amd64-server-????????"
+        register: amis
+      - name: Extract the most recently created AMI from the list
+        debug:
+          msg: "{{ amis.images[-1].image_id }}"
+        register: latest_amzl2_ami
+      - name: Upload public key to AWS
+        ec2_key:
+          name: "{{ key_name }}"
+          key_material: "{{ lookup('file', '/home/jaga/.ssh/{{ key_name }}.pub') }}"
+          region: "{{ region }}"
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+      - name: Create security group
+        ec2_group:
+          name: "{{ sec_group }}"
+          description: "Sec group for app {{ id }}"
+          region: "{{ region }}"
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+          rules:
+            - proto: tcp
+              ports:
+                - 22
+              cidr_ip: 0.0.0.0/0
+            - proto: tcp
+              ports:
+                - 2000-9500
+              cidr_ip: 0.0.0.0/0
+
+              rule_desc: allow all on ssh port
+        register: result_sec_group
+
+      - name: Provision instance(s)
+        ec2:
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+          key_name: "{{ key_name }}"
+          #id: "{{ id }}"
+          group_id: "{{ result_sec_group.group_id }}"
+          image: "{{ amis.images[-1].image_id }}"
+          instance_type: t3.medium
+          instance_tags:
+            name: "Kafka ZK Server"
+            Name: "Kafka ZK Server"
+          region: "{{ region }}"
+          wait: true
+          count: 1
+        register: ec2
+      - name: SSH Group to login dynamically 
+        add_host: 
+            hostname: "{{ item.public_ip }}" 
+            groups: ec2_server
+        loop: "{{ ec2.instances }}"
+      - name: wait for ssh to start
+        wait_for:
+          host: "{{ item.public_ip }}"
+          port: 22
+          state: started
+        loop: "{{ ec2.instances }}"  
+
+      tags: ['never', 'create_ec2']
+
+- name: Installing Kafka on Ubuntu
+  hosts: ec2_server
+  remote_user: ubuntu
+  gather_facts: False
+  become: yes
+  vars: 
+    - installation_dir : /opt/kafka
+  tasks:
+    - name: Install JRE after apt update
+      become: yes
+      apt:
+        name: 
+          - default-jre
+        state: present
+        update_cache: yes
+      tags: ['never', 'create_ec2']
+
+    - name: Create a group 
+      become: yes
+      group:
+        name: kafka
+        state: present
+      tags: ['never', 'create_ec2']
+
+    - name: Create an user 
+      become: yes
+      user:
+        name: kafka
+        state: present
+        group: kafka
+      tags: ['never', 'create_ec2']
+
+    - name: Create a Directory /opt/kafka
+      become: yes
+      file:
+        path: "{{installation_dir}}"
+        state: directory
+        mode: 0777
+        owner: kafka
+        group: kafka
+      tags: ['never', 'create_ec2']
+
+    - name: Download Kafka and Unzip 
+      become: yes
+      become_user: kafka
+      unarchive:
+        src: https://archive.apache.org/dist/kafka/3.1.0/kafka_2.13-3.1.0.tgz
+        dest: "{{installation_dir}}"
+        mode: 0777
+        remote_src: yes
+      tags: ['never', 'create_ec2']
+      #https://stackoverflow.com/questions/46352173/ansible-failed-to-set-permissions-on-the-temporary
+
+    - name: Move all the files to parent Directory
+      become: yes
+      become_user: kafka
+      shell:
+        mv {{installation_dir}}/kafka_*/* {{installation_dir}}/.
+      tags: ['never', 'create_ec2']
+
+    - name: Update the log path
+      become: yes
+      become_user: kafka
+      replace:
+        path: "{{installation_dir}}/config/server.properties"
+        regexp: 'log.dirs=(.+)'
+        replace: 'log.dirs={{installation_dir}}/logs'
+        backup: yes
+      tags: ['never', 'create_ec2']
+
+    - name: Update the Java Heap Size for Kafka
+      become: yes
+      become_user: kafka
+      replace:
+        path: "{{installation_dir}}/bin/kafka-server-start.sh"
+        regexp: 'export KAFKA_HEAP_OPTS=(".+")'
+        replace: 'export KAFKA_HEAP_OPTS="-Xmx520M -Xms520M"'
+        backup: yes
+      tags: ['never', 'create_ec2']
+    
+
+    - name: Create a Service file for ZooKeeper with Copy module
+      become: yes
+      copy:
+        dest: /etc/systemd/system/zookeeper.service
+        content: |
+          [Unit]
+          Requires=network.target remote-fs.target
+          After=network.target remote-fs.target
+
+          [Service]
+          Type=simple
+          User=kafka
+          ExecStart={{installation_dir}}/bin/zookeeper-server-start.sh {{installation_dir}}/config/zookeeper.properties
+          ExecStop={{installation_dir}}/bin/zookeeper-server-stop.sh
+          Restart=on-abnormal
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: 0755
+      tags: ['never', 'create_ec2']
+      
+    - name: Create a Service file for Kafka with Copy module
+      become: yes
+      copy:
+        dest: /etc/systemd/system/kafka.service
+        content: |
+          [Unit]
+          Requires=zookeeper.service
+          After=zookeeper.service
+
+          [Service]
+          Type=simple
+          User=kafka
+          ExecStart=/bin/sh -c '{{installation_dir}}/bin/kafka-server-start.sh {{installation_dir}}/config/server.properties > {{installation_dir}}/kafkaservice.log 2>&1'
+          ExecStop={{installation_dir}}/bin/kafka-server-stop.sh
+          Restart=on-abnormal
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: 0755
+      tags: ['never', 'create_ec2']
+
+    - name: Start Services
+      tags: startservices
+      become: yes
+      systemd:
+        name: '{{item}}'
+        state: started
+        enabled: yes
+      with_items:
+        - "kafka"
+        - "zookeeper"
+      tags: ['never', 'create_ec2']
+
+    
+    - name: Validating if zookeeper is up and listening on port 2181
+      wait_for:
+        host: localhost
+        port: 2181
+        delay: 10
+        timeout: 30
+        state: started
+        msg: "Zookeeper not seem to be running"
+      tags: ['never', 'create_ec2']
+
+    - name: Validating if Kafka is up and listening on port 2181
+      wait_for:
+        host: localhost
+        port: 9092
+        delay: 10
+        timeout: 30
+        state: started
+        msg: "Zookeeper not seem to be running"
+      tags: ['never', 'create_ec2']
+
+ #https://divya-kurothe.medium.com/deploy-of-web-server-on-aws-through-ansible-b39c518d3fba
+ ##https://medium.datadriveninvestor.com/devops-using-ansible-to-provision-aws-ec2-instances-3d70a1cb155f
