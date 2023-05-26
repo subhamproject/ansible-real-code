@@ -1,0 +1,149 @@
+#AWS playbook
+#ansible-playbook ec2_with_dynamic_ami.yaml --vault-password-file ../vault.pass --tags create_ec2
+#PLEASE NOTE WHILE USING PLAYBOOK DONT FORGET TO CREATE ANSIBLE VAULT FOR AWS SECRECTS OTHER WISE IT WONT WORK - FOLLOW THE ATTACH LINK FOR THE SAME
+---
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars_files:
+    #file: "{{lookup('pipe', 'pwd')}}/pass.yml"
+    #- secret/secrets.yml
+    - "{{ playbook_dir }}/secret/secrets.yml"
+
+  vars:
+    key_name: my_aws
+    region: us-east-2
+    id: "ec2-app"
+    sec_group: "{{ id }}-sec"
+
+  tasks:
+    - name: Facts
+      block:
+      - name: Get instances facts
+        ec2_instance_info:
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+          region: "{{ region }}"
+        register: result
+      - name: Instances ID
+        debug:
+          msg: "ID: {{ item.instance_id }} - State: {{ item.state.name }} - Public DNS: {{ item.public_dns_name }}"
+        loop: "{{ result.instances }}"
+      tags: never
+
+
+    - name: Provisioning EC2 instances
+      block:
+      - name: 'Get all Amazon Linux 2 AMIs'
+        amazon.aws.ec2_ami_info:
+         region: "{{ region }}"
+         owners:
+          - amazon
+         filters:
+          name: amzn2-ami-hvm-*-x86_64-gp2
+          architecture: x86_64
+          block-device-mapping.volume-type: gp2
+          virtualization-type: hvm
+        register: amis
+      - name: Extract the most recently created AMI from the list
+        debug:
+          msg: "{{ amis.images[-1].image_id }}"
+        register: latest_amzl2_ami
+      - name: Upload public key to AWS
+        ec2_key:
+          name: "{{ key_name }}"
+          key_material: "{{ lookup('file', '/home/jaga/.ssh/{{ key_name }}.pub') }}"
+          region: "{{ region }}"
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+      - name: Create security group
+        ec2_group:
+          name: "{{ sec_group }}"
+          description: "Sec group for app {{ id }}"
+          region: "{{ region }}"
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+          rules:
+            - proto: tcp
+              ports:
+                - 22
+              cidr_ip: 0.0.0.0/0
+              rule_desc: allow all on ssh port
+        register: result_sec_group
+
+      - name: Provision instance(s)
+        ec2:
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+          key_name: "{{ key_name }}"
+          #id: "{{ id }}"
+          group_id: "{{ result_sec_group.group_id }}"
+          image: "{{ amis.images[-1].image_id }}"
+          instance_type: t2.nano
+          instance_tags:
+            name: Ansible-Created-Hosts
+            Name: Ansible-Created-Hosts
+          monitoring: no
+          region: "{{ region }}"
+          wait: true
+          count: 2
+        register: ec2
+      - name: SSH Group to login dynamically 
+        add_host: 
+            hostname: "{{ item.public_ip }}" 
+            groups: ec2_server
+        loop: "{{ ec2.instances }}"
+      - name: wait for ssh to start
+        wait_for:
+          host: "{{ item.public_ip }}"
+          port: 22
+          state: started
+        loop: "{{ ec2.instances }}"  
+
+      tags: ['never', 'create_ec2']
+
+#Login to above created EC2 and install pkgs
+- hosts: ec2_server
+  remote_user: ec2-user
+  gather_facts: True
+  become: yes
+  tasks:
+    - name: run
+      block:
+      - name: install httpd and php
+        package:
+         name:
+          - httpd
+          - php
+         state: present
+        vars:
+         ansible_python_interpreter: /usr/bin/python2
+      - name: copy local file to remote
+        copy:
+         src: /tmp/syslog
+         dest: /tmp/syslog
+         backup: yes
+        become: true
+      - name: download file from remote host to local
+        fetch:
+         src: /etc/passwd
+         dest: /tmp/passwd_{{ ansible_hostname }}
+         flat: yes
+      - name: Replace the default
+        replace:
+         path: /etc/hosts
+         regexp: 'localhost'
+         replace: 'LOCALHOST'
+         backup: yes
+      - name: "Replace line in file examples"
+        replace:
+          path: /var/www/html/index.html
+          regexp: '[F|f]ox'
+          replace: 'racoon'
+          backup: yes
+        ignore_errors: true
+
+      tags: ['never', 'create_ec2']
+
+ #https://divya-kurothe.medium.com/deploy-of-web-server-on-aws-through-ansible-b39c518d3fba
+ ##https://medium.datadriveninvestor.com/devops-using-ansible-to-provision-aws-ec2-instances-3d70a1cb155f

@@ -1,0 +1,144 @@
+#ansible-playbook ec2_with_dynamic_ami.yaml --vault-password-file ../vault.pass --tags create_ec2
+#PLEASE NOTE WHILE USING PLAYBOOK DONT FORGET TO CREATE ANSIBLE VAULT FOR AWS SECRECTS OTHER WISE IT WONT WORK - FOLLOW THE ATTACH LINK FOR THE SAME
+#
+#
+#https://dev.to/aws-builders/ansible-for-amazon-linux-2-2icf
+#https://www.linkedin.com/pulse/ansible-dynamic-inventory-refresh-run-time-kethavath-siva-naik/
+
+---
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars_files:
+    #file: "{{lookup('pipe', 'pwd')}}/pass.yml"
+    #- secret/secrets.yml
+    - "{{ playbook_dir }}/secret/secrets.yml"
+
+  vars:
+    key_name: my_aws
+    region: us-east-2
+    id: "ec2-app"
+    sec_group: "{{ id }}-sec"
+
+  tasks:
+    - name: Facts
+      block:
+      - name: Get instances facts
+        ec2_instance_info:
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+          region: "{{ region }}"
+        register: result
+      - name: Instances ID
+        debug:
+          msg: "ID: {{ item.instance_id }} - State: {{ item.state.name }} - Public DNS: {{ item.public_dns_name }}"
+        loop: "{{ result.instances }}"
+      tags: never
+
+
+    - name: Provisioning EC2 instances
+      block:
+      - name: 'Get all Amazon Linux 2 AMIs'
+        amazon.aws.ec2_ami_info:
+         region: "{{ region }}"
+         owners:
+          - amazon
+         filters:
+          name: amzn2-ami-hvm-*-x86_64-gp2
+          architecture: x86_64
+          block-device-mapping.volume-type: gp2
+          virtualization-type: hvm
+        register: amis
+      - name: Extract the most recently created AMI from the list
+        debug:
+          msg: "{{ amis.images[-1].image_id }}"
+        register: latest_amzl2_ami
+      - name: Upload public key to AWS
+        ec2_key:
+          name: "{{ key_name }}"
+          key_material: "{{ lookup('file', '/home/jaga/.ssh/{{ key_name }}.pub') }}"
+          region: "{{ region }}"
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+      - name: Create security group
+        ec2_group:
+          name: "{{ sec_group }}"
+          description: "Sec group for app {{ id }}"
+          region: "{{ region }}"
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+          rules:
+            - proto: tcp
+              ports:
+                - 22
+              cidr_ip: 0.0.0.0/0
+              rule_desc: allow all on ssh port
+        register: result_sec_group
+
+      - name: Provision instance(s)
+        ec2:
+          aws_access_key: "{{ec2_access_key}}"
+          aws_secret_key: "{{ec2_secret_key}}"
+          key_name: "{{ key_name }}"
+          #id: "{{ id }}"
+          group_id: "{{ result_sec_group.group_id }}"
+          image: "{{ amis.images[-1].image_id }}"
+          instance_type: t2.nano
+          region: "{{ region }}"
+          wait: true
+          count: 1
+          volumes:
+           - device_name: /dev/xvda
+             volume_size: 20
+             volume_type: gp2
+             delete_on_termination: true
+        register: ec2
+      - name: Wait to Completely Provision Instances
+        pause:
+         minutes: 1
+      - name: Refresh Inventory
+        meta: refresh_inventory
+      tags: ['never', 'create_ec2']
+
+#Login to above created EC2 and install pkgs
+- hosts: all
+  remote_user: ec2-user
+  gather_facts: False
+  become: yes
+  tasks:
+    - name: run
+      block:
+      - name: install httpd and php
+        package:
+         name:
+          - httpd
+          - php
+         state: present
+        vars:
+         ansible_python_interpreter: /usr/bin/python2
+      - name: enable web server
+        service:
+         name: httpd
+         enabled: yes
+      - name: modify home page
+        shell: 'echo "Hello World!" >> /var/www/html/index.html'
+      - name: create user
+        user:
+          name: jaga
+          shell: /bin/bash
+      - name: copy pubkey
+        authorized_key:
+         user: jaga
+         state: present
+         key: "{{ lookup('file', '/home/jaga/.ssh/id_rsa.pub') }}"
+      - name: set user as sudoers
+        lineinfile:
+          path: /etc/sudoers.d/90-cloud-init-users
+          line: 'jaga ALL=(ALL) NOPASSWD:ALL'
+          insertafter: EOF
+      - name: set hostname
+        command: hostnamectl set-hostname subham.example.com
+      tags: ['never', 'create_ec2']
+
+ #https://divya-kurothe.medium.com/deploy-of-web-server-on-aws-through-ansible-b39c518d3fba
+ ##https://medium.datadriveninvestor.com/devops-using-ansible-to-provision-aws-ec2-instances-3d70a1cb155f

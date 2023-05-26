@@ -1,0 +1,53 @@
+---
+ - name: Access instance with TAGS
+   hosts: localhost
+   connection: local
+   gather_facts: false
+   tasks:
+       - name: Locate instance id with tags
+         ec2_instance_info:
+           region: us-east-2
+           filters:
+             "tag:Env": db
+         register: ec2_info
+         tags:
+          - always
+
+       - name: Start ec2 instance
+         ec2:
+           instance_ids:  "{{ item.instance_id }}"
+           region: us-east-2
+           state: running
+           wait: yes
+         loop: "{{ ec2_info.instances }}"
+         loop_control:
+           label: "{{ item.instance_id }}"
+         tags:
+          - start
+          - never
+
+       - name: Stop ec2 instance
+         ec2:
+           instance_ids:  "{{ item.instance_id }}"
+           region: us-east-2
+           state: stopped
+           wait: yes
+         loop: "{{ ec2_info.instances }}"
+         loop_control:
+           label: "{{ item.instance_id }}"
+         tags:
+          - stop
+          - never
+
+       - name: Terminate ec2 instance
+         ec2:
+           instance_ids:  "{{ item.instance_id }}"
+           region: us-east-2
+           state: absent
+           wait: yes
+         loop: "{{ ec2_info.instances }}"
+         loop_control:
+           label: "{{ item.instance_id }}"
+         tags:
+          - terminate
+          - never
