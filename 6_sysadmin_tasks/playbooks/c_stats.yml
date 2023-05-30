@@ -1,0 +1,7 @@
+- name: Check Stats/sar for Servers
+  hosts: all
+  gather_facts: True
+  become: yes
+  roles:
+    - check_stats
+    - check_uptime

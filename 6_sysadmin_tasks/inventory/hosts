@@ -1,0 +1,7 @@
+[rhel8]
+master ansible_ssh_host=192.168.1.12
+workernode1 ansible_ssh_host=192.168.1.15
+
+[rhel8:vars]
+ansible_user=ansible
+

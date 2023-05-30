@@ -1,0 +1,12 @@
+---
+- name: check if memory is between 1000 and 3000MB
+  assert:
+    that:
+      - ansible_memtotal_mb | int >= 3000
+      - ansible_memtotal_mb | int <= 4000
+    fail_msg: "Memory is {{ ansible_memtotal_mb }}MB not 4000MB"
+  register: result
+  changed_when:
+    - result.evaluated_to is defined
+    - result.evaluated_to == False
+  failed_when: False
