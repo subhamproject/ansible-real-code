@@ -1,0 +1,21 @@
+---
+- name: Handlers grouping example
+  hosts: workers
+  vars:
+    ftp_service_name: vsftpd
+    web_service_name: nginx
+  tasks:
+    - name: restart everything
+      command: echo "this task will restart web and ftp services"
+      notify: "restart web and ftp services"
+      become: true
+
+  handlers:
+    - name: restart vsftpd
+      service: name="{{ ftp_service_name | default('vsftpd')}}" state=restarted
+      listen: "restart web and ftp services"
+      become: true
+    - name: restart nginx
+      service: name="{{ web_service_name | default('httpd')}}" state=restarted
+      listen: "restart web and ftp services"
+      become: true
