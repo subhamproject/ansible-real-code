@@ -1,5 +1,5 @@
 #AWS playbook
-#ansible-playbook ec2_with_userdata.yaml --vault-password-file ../vault.pass --tags create_ec2
+#ansible-playbook create_jenkins_with_userdata.yml --vault-password-file ../vault.pass --tags create_ec2
 #PLEASE NOTE WHILE USING PLAYBOOK DONT FORGET TO CREATE ANSIBLE VAULT FOR AWS SECRECTS OTHER WISE IT WONT WORK - FOLLOW THE ATTACH LINK FOR THE SAME
 ---
 - hosts: localhost

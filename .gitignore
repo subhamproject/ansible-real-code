@@ -1,2 +1,4 @@
 *.pem
 *.log
+*.pass
+vault.pass
