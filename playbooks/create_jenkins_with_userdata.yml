@@ -12,9 +12,9 @@
 
   vars:
     key_name: my_aws
-    region: us-east-2
+    region: us-west-2
     id: "ec2-app"
-    sec_group: "{{ id }}-sec-new"
+    sec_group: "{{ id }}-jenkins-sg"
 
   tasks:
     - name: Facts
@@ -72,10 +72,6 @@
               ports:
                 - 8080
               cidr_ip: 0.0.0.0/0
-            - proto: tcp
-              ports:
-                - 80
-              cidr_ip: 0.0.0.0/0
               rule_desc: allow all on ssh and 8080 port
         register: result_sec_group
 
@@ -86,9 +82,11 @@
           key_name: "{{ key_name }}"
           group_id: "{{ result_sec_group.group_id }}"
           image: "{{ amis.images[-1].image_id }}"
-          user_data: "{{ lookup('file', 'user-data.sh') }}"
-          instance_type: t3.medium
+          user_data: "{{ lookup('file', 'jenkins-user-data.sh') }}"
+          instance_type: t2.nano
           region: "{{ region }}"
+          instance_tags:
+            Name: "Jenkins Server New"
           wait: true
           count: 1
           volumes:
