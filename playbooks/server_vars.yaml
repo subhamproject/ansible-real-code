@@ -2,8 +2,8 @@
 # variables from dynamic inventory
 - name: variables from dynamic inventory
   hosts: aws_region_us_west_2
-  gather_facts: false
-  remote_user: ubuntu # user used to connect to AWS servers.
+  gather_facts: True
+  remote_user: ec2-user # user used to connect to AWS servers.
   become: true
   become_method: sudo
   become_user: root
@@ -37,4 +37,4 @@
 
   - name: get inventory hostname
     debug:
-       var: "{{ inventory_hostname }}"
+       var: inventory_hostname 

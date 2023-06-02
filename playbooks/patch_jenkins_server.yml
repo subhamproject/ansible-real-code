@@ -1,0 +1,146 @@
+---
+- name: Patching Jenkins Server
+  hosts: _Jenkins_Server_New
+  gather_facts: True
+  remote_user: ec2-user # user used to connect to AWS servers.
+  become: true
+  become_method: sudo
+  become_user: root
+  #any_errors_fatal: True
+  #ignore_unreachable: true
+ 
+  pre_tasks:
+    - block:
+        - debug:
+            var: ansible_play_hosts_all
+        - debug:
+            var: ansible_play_hosts
+        - set_fact:
+            down: "{{ ansible_play_hosts_all|difference(ansible_play_hosts)|join('\n') }}"
+        - shell: md5sum /home/jaga/ansible-real-code/playbooks/unreach_result.txt 
+          register: before
+          delegate_to: localhost
+          changed_when: false
+        - copy:
+            content: "{{ down }}"
+            dest: "unreach_result.txt"
+          delegate_to: localhost
+        - shell: md5sum /home/jaga/ansible-real-code/playbooks/unreach_result.txt 
+          delegate_to: localhost
+          register: after
+          changed_when: false
+        - name: Verify host files md5 value
+          debug:
+           var:  before.stdout[0:32]
+      run_once: true
+
+    - name: read contents of a file
+      set_fact:
+        file_contents: "{{ lookup('file', 'unreach_result.txt') }}"
+      delegate_to: localhost
+
+    - name: Append ",HOST UNREACHABLE" to every line for host not reachable
+      blockinfile:
+        path: "unreach_result_new.txt"
+        block: |
+          {% for line in file_contents.split('\n') %}
+          {{ line }},HOST UNREACHABLE
+          {% endfor %}
+        create: true
+      with_file:
+         - "unreach_result.txt"
+      delegate_to: localhost
+      changed_when: before.stdout[0:32] != after.stdout[0:32]
+      when: before.stdout[0:32] != after.stdout[0:32]
+    - name: Stopping the Services Nginx and Jenkins
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - jenkins
+        - nginx
+    - name: "Wait until Jenkins and Nginx service are stopped"
+      service_facts:
+      register: _service_facts
+      until: ( _service_facts.ansible_facts.services['jenkins.service'].state == "stopped" ) and ( _service_facts.ansible_facts.services['nginx.service'].state == "stopped" )
+      retries: 20
+      delay: 2
+  
+  tasks:
+    - name: "Getting List of all the Running services from {{ inventory_hostname }} before Patching and Uprade"
+      service_facts:
+
+    - name: Verifying if Jenkins and Nginx service are still up and running
+      fail:
+       msg: "Service Jenkins and nginx are running - Please stop them and try again"
+      when: ( ansible_facts.services['jenkins.service'].state == "running" ) or ( ansible_facts.services['nginx.service'].state == "running" )
+    
+    - name: running prepatch info commands
+      shell: |
+        echo "Getting Prepatch details for {{ inventory_hostname }}"
+        echo "--------------------------------------------------------"
+        df -hP
+        echo "--------------------------------------------------------"
+        cat /etc/resolv.conf
+        echo "--------------------------------------------------------"
+        cat /etc/fstab
+        echo "--------------------------------------------------------"
+        echo "current kernel Version:   $(uname -r)"
+        echo "--------------------------------------------------------"
+        echo "current Jenkins Version:  $(rpm -qa jenkins)"     
+      register: prepatch
+      changed_when: false
+    - name: removing old prepatch info file if any
+      local_action: file path={{ playbook_dir }}/pre_patch_status/{{ inventory_hostname }}-prepatch.txt state=absent
+    - name: storing prepatch info
+      local_action: copy content={{ prepatch.stdout }} dest={{ playbook_dir }}/pre_patch_status/{{ inventory_hostname }}-prepatch.txt
+    - name: upgrade all packages
+      yum:
+        name: '*'
+        state: latest
+      vars:
+         ansible_python_interpreter: /usr/bin/python2
+    - name: check if reboot is require after kernel update
+      shell: KERNEL_NEW=$(rpm -qa --last kernel |head -1|awk '{print $1}'|sed 's/kernel-//'); KERNEL_NOW=$(uname -r); if [[ $KERNEL_NEW != $KERNEL_NOW ]] ;then echo "reboot_needed"; else echo "reboot_not_needed"; fi
+      changed_when: false
+      register: reboot_required
+    - name: restart server
+      reboot:
+        test_command: uptime
+        reboot_timeout: 300
+      when: reboot_required.stdout == "reboot_needed"
+    - name: wait for the server to restart
+      local_action: wait_for host={{ inventory_hostname }}
+                    port=22
+                    delay=15
+                    timeout=300
+                    state=started
+                    connect_timeout=15
+  post_tasks:
+    - name: Start Nginx and Jenkins
+      systemd:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - jenkins
+        - nginx
+    - name: "Getting List of all the Running services from {{ inventory_hostname }} Post Patching and Upgrade"
+      service_facts:
+
+    - name: Verifying if Jenkins and Nginx came up after patching and reboot
+      fail:
+       msg: "Service Jenkins and nginx are  not running - Please start them manually"
+      when: ( ansible_facts.services['jenkins.service'].state != "running" ) or ( ansible_facts.services['nginx.service'].state != "running" )
+    - name: "Verify if Jenkins and Nginx are up"
+      assert:
+        that:
+          - ansible_facts.services['jenkins.service'].state == "running"
+          - ansible_facts.services['nginx.service'].state == "running"
+        fail_msg: "Please check Services dint come up in {{ inventory_hostname }}"
+        success_msg: "Both Jenkins and Nginx are runningin {{ inventory_hostname }}"
+    - name: Wait untils Jenkins web API is available
+      shell: curl -LI http://localhost:8080/login -o /dev/null -w '%{http_code}\n' -s
+      register: result
+      until: result.stdout.find("200 OK") != -1
+      retries: 12
+      delay: 5

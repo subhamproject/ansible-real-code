@@ -19,3 +19,9 @@ keyed_groups:
   - key: tags.Name
 compose:
   ansible_host: public_ip_address
+
+
+#https://dev.to/vumdao/ansible-aws-ec2-dynamic-inventory-plugin-3bme
+#
+#host file name should end with
+#Note: Uses a YAML configuration file that ends with aws_ec2.(yml|yaml)

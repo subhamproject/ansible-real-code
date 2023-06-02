@@ -83,17 +83,12 @@
           group_id: "{{ result_sec_group.group_id }}"
           image: "{{ amis.images[-1].image_id }}"
           user_data: "{{ lookup('file', 'jenkins-user-data.sh') }}"
-          instance_type: t2.nano
+          instance_type: t2.micro
           region: "{{ region }}"
           instance_tags:
             Name: "Jenkins Server New"
           wait: true
-          count: 1
-          volumes:
-           - device_name: /dev/sda1
-             device_type: gp2
-             volume_size: 20
-             delete_on_termination: true
+          count: 2
         register: ec2
       - name: SSH Group to login dynamically 
         add_host: 
