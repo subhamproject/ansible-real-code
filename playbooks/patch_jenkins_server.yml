@@ -17,7 +17,7 @@
             var: ansible_play_hosts
         - set_fact:
             down: "{{ ansible_play_hosts_all|difference(ansible_play_hosts)|join('\n') }}"
-        - shell: md5sum /home/jaga/ansible-real-code/playbooks/unreach_result.txt 
+        - shell: md5sum unreach_result.txt 
           register: before
           delegate_to: localhost
           changed_when: false
@@ -25,7 +25,7 @@
             content: "{{ down }}"
             dest: "unreach_result.txt"
           delegate_to: localhost
-        - shell: md5sum /home/jaga/ansible-real-code/playbooks/unreach_result.txt 
+        - shell: md5sum unreach_result.txt 
           delegate_to: localhost
           register: after
           changed_when: false
@@ -141,6 +141,6 @@
     - name: Wait untils Jenkins web API is available
       shell: curl -LI http://localhost:8080/login -o /dev/null -w '%{http_code}\n' -s
       register: result
-      until: result.stdout.find("200 OK") != -1
+      until: result.stdout.find("200") != -1
       retries: 12
       delay: 5
