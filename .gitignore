@@ -3,3 +3,4 @@
 *.pass
 vault.pass
 secrets.yml
+pre_patch_status/*.txt

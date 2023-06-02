@@ -83,7 +83,7 @@
           group_id: "{{ result_sec_group.group_id }}"
           image: "{{ amis.images[-1].image_id }}"
           user_data: "{{ lookup('file', 'jenkins-user-data.sh') }}"
-          instance_type: t2.micro
+          instance_type: t2.medium
           region: "{{ region }}"
           instance_tags:
             Name: "Jenkins Server New"
