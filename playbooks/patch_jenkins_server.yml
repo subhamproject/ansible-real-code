@@ -1,7 +1,7 @@
 #ansible-playbook patch_jenkins_server.yml --tags main
 ---
 - name: Patching Jenkins Server
-  hosts: _Jenkins_Server_New #all
+  hosts: all
   gather_facts: True
   remote_user: ec2-user # user used to connect to AWS servers.
   become: true
@@ -135,7 +135,7 @@
                     connect_timeout=15
       tags: ['never', 'main']
   post_tasks:
-    - name: Start Nginx and Jenkins
+    - name: Start Nginx and Jenkins Post Patch And Updates
       systemd:
         name: "{{ item }}"
         state: started
@@ -147,7 +147,7 @@
       service_facts:
       tags: ['always', 'postcheck']
 
-    - name: Verifying if Jenkins and Nginx came up after patching and reboot
+    - name: Verifying if Jenkins and Nginx came up post patching and reboot
       fail:
        msg: "Service Jenkins and nginx are  not running - Please start them manually"
       when: ( ansible_facts.services['jenkins.service'].state != "running" ) or ( ansible_facts.services['nginx.service'].state != "running" )
