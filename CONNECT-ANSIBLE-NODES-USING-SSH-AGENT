@@ -1,0 +1,23 @@
+
+https://www.linode.com/docs/guides/using-ssh-agent/
+
+run below command in your terminal
+
+eval `ssh-agent`
+
+ssh-add ~/.ssh/id_rsa
+
+or
+
+ssh-add ~/.ssh/my_key
+
+
+After doing above you need not to mention pem key details in Ansible.cfg file
+
+
+
+#https://medium.com/@praneeth1691/running-ansible-with-ssh-agent-forwarding-957bcb14c95c#:~:text=Ansible%20uses%20OpenSSH%20to%20access,the%20forwarding%20of%20SSH%20agent.
+
+#https://gist.github.com/mohanpedala/b2705c470ea433c6e59a27635c2c5bb5
+
+#https://gist.github.com/arbabnazar/6b9909cfba52ac066512ba5d1c1a1080

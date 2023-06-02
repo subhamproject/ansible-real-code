@@ -3,10 +3,9 @@ Getting Prepatch details for ec2-35-88-201-29.us-west-2.compute.amazonaws.com
 Filesystem      Size  Used Avail Use% Mounted on
 devtmpfs        2.0G     0  2.0G   0% /dev
 tmpfs           2.0G     0  2.0G   0% /dev/shm
-tmpfs           2.0G  472K  2.0G   1% /run
+tmpfs           2.0G  416K  2.0G   1% /run
 tmpfs           2.0G     0  2.0G   0% /sys/fs/cgroup
 /dev/xvda1      8.0G  2.1G  6.0G  26% /
-tmpfs           393M     0  393M   0% /run/user/0
 tmpfs           393M     0  393M   0% /run/user/1000
 --------------------------------------------------------
 options timeout:2 attempts:5
